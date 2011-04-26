@@ -155,7 +155,7 @@ class FixProtocol(SessionProtocol):
                 break
 
             # find start of checksum tag
-            c_start = data.find('10=', c_x)
+            c_start = data.find('\x0110=', c_x)
             if c_start == -1:
                 break
 
