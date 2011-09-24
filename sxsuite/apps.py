@@ -137,14 +137,20 @@ class ProcessApplication(Application):
                 self.init = getattr(target, 'setup')
             if hasattr(target, 'finish'):
                 self.finish = getattr(target, 'finish')
-            if not callable(target):
+            if hasattr(target, 'handle'):
+                self.handler = getattr(target, 'handle')
+            else:
+                self.handler = target
+            if not callable(self.handler):
                 raise ConfigError(self, exc.E_NOTCALLABLE)
-                
+
         def run(self):
             signal.signal(signal.SIGTERM, self.sigterm)
-            logging.debug("starting subprocess in pid: %d ", os.getpid())
+            logging.debug("starting subprocess in pid: %d [fd %d]",
+                          os.getpid(), self.conn.fileno())
             # flush all timers as we are running in separate process
             flush_timers()
+            os.closerange(3, self.conn.fileno())
             if callable(self.init):
                 self.init(self.conn)
             self.running = True
@@ -158,16 +164,17 @@ class ProcessApplication(Application):
                 except (IOError, KeyboardInterrupt), ex:
                     break
                 except Exception, e:
-                    logging.error("Subprocess recv failed: %s", str(ex))
+                    logging.error("Subprocess recv failed: %s", str(e))
+                    break
                 try:
-                    result = self.target(data)
+                    result = self.handler(data, self.conn)
                     if result is not None:
                         self.conn.send(result)
                 except Exception, e:
                     logging.error("Subprocess %s raised %s", str(self.target), str(e))
             # end while
             if callable(self.finish):
-                self.finish()
+                self.finish(self.conn)
             self.conn.close()
 
         def sigterm(self, signum, frame):
@@ -187,6 +194,8 @@ class ProcessApplication(Application):
     def start(self):
         signal.signal(signal.SIGCHLD, self._sigchld)
         self.parent, self.child = Pipe(duplex=True)
+        logging.debug("parent conn %d, child %d",
+                      self.parent.fileno(), self.child.fileno())
         self.transport = ConnectedTransport(self._reaktor, self.parent, self)
         self.runner = ProcessApplication.Subprocess(self.target, self.child)
         self._process = Process(target=self.runner.run)
@@ -195,6 +204,7 @@ class ProcessApplication(Application):
     def _close(self, timeout):
         self._process.join(timeout)
         if self.transport is not None:
+            # this closes also parent channel
             self.transport.close()
             self.transport.del_channel()
         self.child = self.parent = self.transport = None
