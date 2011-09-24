@@ -22,7 +22,7 @@ from sxsuite.timer import add_timer, del_timer
 
 _session_counter = 0
 
-class StreamModule(object):
+class SessionBase(object):
     def __init__(self, protocol):
         self.protocol = protocol
         if protocol is not None:
@@ -56,18 +56,20 @@ class StreamModule(object):
         """Handle received and validated data."""
         if self._uplink is not None:
             try:
+                logging.debug("push upstream: %s", type(self._uplink))
                 self._uplink.upstream(data)
             except Exception, e:
                 logging.debug("session.received: %s", str(e))
                 traceback.print_exc()
+                raise e
         else:
-            raise ConfigError(self, exc.S_ENOUPSTREAM)
+            raise ConfigError, (self, exc.S_ENOUPSTREAM)
         
     def transmit(self, data):
         if self._downlink is not None:
             self._downlink.downstream(data)
         else:
-            raise ConfigError(self, exc.S_ENODOWNSTREAM)
+            raise ConfigError, (self, exc.S_ENODOWNSTREAM)
 
     def upstream(self, data):
         """Push data upstream."""
@@ -78,7 +80,7 @@ class StreamModule(object):
         self.send(data)
 
 
-class Session(StreamModule):
+class Session(SessionBase):
 
     """Implements basic session state machine.
 
@@ -105,7 +107,7 @@ class Session(StreamModule):
         }
 
     def __init__(self, protocol, name='', transport=None, server=False):
-        StreamModule.__init__(self, protocol)
+        SessionBase.__init__(self, protocol)
         self.transport = transport
         self.server = server
         self.config = {}
@@ -155,7 +157,7 @@ class Session(StreamModule):
         pass
 
     def upstream(self, data):
-        raise ConfigError(self, exc.S_ENOTUPMODULE)
+        raise ConfigError, (self, exc.S_ENOTUPMODULE)
 
     def downstream(self, data):
         self.send(data)
@@ -172,7 +174,7 @@ class Session(StreamModule):
         if self._state == Session.LOGIN:
             login_m = self.protocol.validate(lines.pop(0))
             if login_m is None:
-                raise SessionError(self, exc.S_EINVAL, "Invalid Logon message")
+                raise SessionError, (self, exc.S_ELOGIN)
             self.log.debug("VALIDATE LOGIN: '%s'", str(login_m))
             if self.protocol.login_auth(login_m, self.server):
                 self._state = Session.INSESSION
@@ -183,13 +185,13 @@ class Session(StreamModule):
             for line in lines:
                 msg = self.protocol.validate(line)
                 if msg is None:
-                    raise SessionError(self, exc.S_EINVAL)
+                    raise SessionError, (self, exc.S_EINVAL)
                 self.protocol.received(msg, self.server)
 
 
     def send(self, data):
         # if self._state != Session.INSESSION:
-        #    raise SessionError(self, exc.S_ENOTINSESSION)
+        #    raise SessionError(exc.S_ENOTINSESSION)
         if self.protocol is None:
             self.transmit(data)
         else:
@@ -203,12 +205,12 @@ class Session(StreamModule):
         """
         if self._direct:
             if self.transport is None:
-                raise TransportError(self, exc.S_ENOTCONN)
+                raise TransportError, (self, exc.S_ENOTCONN)
             self.transport.send(data)
             self.last_send = time()
         else:
             self._outq.append(data)
-        self.log.debug("Out queue length: %d", len(self._outq))
+        #self.log.debug("Out queue length: %d", len(self._outq))
 
     def writable(self):
         return len(self._outq) > 0 or self._state == Session.SSL_INIT
@@ -238,7 +240,7 @@ class Session(StreamModule):
         """Write data to transport."""
         connected = transport.state == Transport.CONNECTED
         if self.transport is None:
-            raise TransportError(self, exc.S_ENOTCONN)
+            raise TransportError, (self, exc.S_ENOTCONN)
         assert(transport == self.transport)
         if connected and len(self._outq) > 0:
             data = self._outq.pop(0)
@@ -257,7 +259,7 @@ class Session(StreamModule):
         transport.close()
         transport.del_channel()
         self._state = Session.IDLE
-        raise SessionError(self, reason)
+        raise SessionError, (self, reason)
 
     def event_stop(self, transport):
         transport.close()
@@ -336,14 +338,14 @@ class TCPSession(Session):
             self.transport.start(address)
         
     def stop(self):
-        self.log.info("Stop requested for: %s", str(self))
+        self.log.debug("Stopping: %s", str(self))
         if self.listener is not None:
-            self.log.warning("Closing listen transport: %s", str(self))
+            #self.log.warning("Closing listen transport: %s", str(self))
             self.listener.close()
             self.listener.del_channel()
 
         if self.transport is not None:
-            self.log.warning("Closing forcibly open session: %s", str(self))
+            #self.log.warning("Closing forcibly open session: %s", str(self))
             self.transport.close()
             self.transport.del_channel()
 
@@ -433,7 +435,7 @@ class TCPSession(Session):
     def event_error(self, transport):
         """Handle errors on transport."""
         # assert(transport == self.transport)
-        self.log.debug("t: %s, s.t: %s", str(transport), str(self.transport))
+        #self.log.debug("t: %s, s.t: %s", str(transport), str(self.transport))
         typ, ex, tb = sys.exc_info()
         self.log.debug("ERROR %s: %s", typ, str(ex))
         error_no = 0
@@ -453,7 +455,7 @@ class TCPSession(Session):
                     self._arm_reconnect()
                 return
             else:
-                raise TransportError(self, error_no, errstr)
+                raise TransportError, (self, error_no, errstr)
 
         elif typ == ssl.SSLError:
             if ex.errno in [ssl.SSL_ERROR_WANT_READ,
@@ -473,10 +475,9 @@ class TCPSession(Session):
             else:
                 raise ex
 
-        elif typ == SessionError:
-            self.log.error("Session error: [%d] %s", ex.errno, ex.msg)
         else:
-            self.log.debug("Other Error: %s", str(ex))
+            self.log.debug("event_error: %s\n %s",
+                           ex.__class__.__name__, traceback.format_exc())
             raise ex
 
     def event_timeout(self, transport, reason):
