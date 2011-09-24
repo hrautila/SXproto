@@ -24,6 +24,7 @@ S_ENOTDOWNMODULE = 1014
 S_ETIMEOUT = 1015
 S_ENOTINSESSION = 1016
 S_ENOTCALLABLE = 1017
+S_ELOGIN = 1018
 
 _errmsg_table = {
     S_EINVAL: "Invalid value or message",
@@ -42,7 +43,8 @@ _errmsg_table = {
     S_ENOTDOWNMODULE: "Not a downstream module",
     S_ETIMEOUT: "Transport timeout occured.",
     S_ENOTINSESSION: "Session not logged in",
-    S_ENOTCALLABLE: "Object not callable"
+    S_ENOTCALLABLE: "Object not callable",
+    S_ELOGIN: "Invalid login"
 }
 
 def errmsg(errnum):
@@ -51,10 +53,11 @@ def errmsg(errnum):
     except:
         return 'Unknown error number'
 
+
 class TransportError(Exception):
     """Transport related errors."""
-    def __init__(self, transport, err, msg=''):
-        self.source = transport
+    def __init__(self, source, err, msg=''):
+        self.source = source
         if isinstance(err, socket.error):
             self.errno, self.msg = err.args
         else:
@@ -62,12 +65,12 @@ class TransportError(Exception):
             self.msg = msg
     
     def __str__(self):
-        return "%s: [%d] %s" % (str(self.source), self.errno, self.msg)
+        return "%s: [%d] %s" % (self.__class__.__name__, self.errno, self.msg)
 
 class SessionError(Exception):
     """General session errors."""
-    def __init__(self, session, errno, msg=''):
-        self.source = session
+    def __init__(self, source, errno, msg=''):
+        self.source = source
         self.errno = errno
         if msg:
             self.msg = msg
@@ -75,13 +78,13 @@ class SessionError(Exception):
             self.msg = errmsg(errno)
 
     def __str__(self):
-        return "%s: [%d] %s" % (str(self.source), self.errno, self.msg)
+        return "%s: [%d] %s" % (self.__class__.__name__, self.errno, self.msg)
 
 
 class ConfigError(Exception):
     """Stream configuration errors."""
-    def __init__(self, module, errno, msg=''):
-        self.source = module
+    def __init__(self, source, errno, msg=''):
+        self.source = source
         self.errno = errno
         if msg:
             self.msg = msg
@@ -89,5 +92,6 @@ class ConfigError(Exception):
             self.msg = errmsg(errno)
 
     def __str__(self):
-        return "%s: [%d] %s" % (str(self.source), self.errno, self.msg)
+        return "%s: [%d] %s" % (self.__class__.__name__, self.errno, self.msg)
     
+
