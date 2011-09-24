@@ -197,7 +197,7 @@ class AcceptorTransport(Transport):
         """Create actual network socket."""
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
-        self.set_reuse_addr()
+        self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.state = Transport.IDLE
 
     def start(self, target):
