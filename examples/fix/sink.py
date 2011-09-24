@@ -2,12 +2,13 @@
 import sys
 import logging
 import traceback
+import urlparse
 
 import sxsuite.exc as exc
 from sxsuite.fix import FixClient, FixServer, FixProtocol
 from sxsuite.apps import Handler, ProcessApplication
 from sxsuite.reaktor import Reaktor
-
+from sxsuite.transport import SSLContext
 
 class FixSink(Handler):
     """Simple process to eat all incoming messages."""
@@ -54,7 +55,26 @@ def get_session(args, reaktor, protocol):
     app.set_conf('resend_mode', 'GAPFILL')
     return app
 
+class SSLServerContext(SSLContext):
+    def verify(self, sock):
+        cert = sock.getpeercert()
+        logging.debug('peer cert: %s', cert)
+        return True
+
 def main(args):
+
+    target = ('localhost', 2000)
+    use_tls = False
+
+    if args:
+        r = urlparse.urlparse(args.pop(0))
+        if r.netloc:
+            addr, port = r.netloc.split(':')
+            target = (addr, int(port))
+            use_tls = r.scheme == 'tls'
+        else:
+            print "target address: [tls:]//<host>:<port>"
+            sys.exit(1)
 
     logging.basicConfig(level=logging.DEBUG)
 
@@ -67,7 +87,10 @@ def main(args):
     process.linkdown(session)
     session.linkup(process)
 
-    session.start(('localhost', 2000))
+    if use_tls:
+        session.ssl_context(SSLServerContext())
+
+    session.start(target)
     process.start()
     save_path = args[0] + '.state'
     reaktor.run([(session.state, save_path)])
