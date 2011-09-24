@@ -63,11 +63,11 @@ class LineProtocol(SessionProtocol):
         """Verify login."""
         if not server:
             if data != 'OK':
-                raise SessionError(self.session, exc.S_ELOGINFAILED)
+                raise SessionError, (self.session, exc.S_ELOGINFAILED)
             return True
         if server:
             if data != 'LOGIN':
-                raise SessionError(self.session, exc.S_EINVALIDLOGIN)
+                raise SessionError, (self.session, exc.S_EINVALIDLOGIN)
             self.transmit('OK')
         return True
 
