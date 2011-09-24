@@ -19,7 +19,7 @@ class Reaktor(object):
         self._savelist = []
         self._stid = None
 
-    def run(self, savelist=[]):
+    def run(self, savelist=[], exc_handler=None):
         self._savelist = savelist
         if self._savelist:
             self._stid = add_timer(5, self.save_states)
@@ -32,15 +32,17 @@ class Reaktor(object):
                 for t in self.map.values():
                     t.session.stop()
                 # break
-            except SessionError, se:
-                logging.debug( "reaktor session error: %s", str(se))
-                logging.debug( "transport: %s", str(se.source.transport))
-            except Exception, e:
-                logging.debug("reaktor loop: %s", str(e))
-                traceback.print_exc()
-                break
+            except Exception, exc:
+                #logging.debug("reaktor loop: %s", type(exc))
+                #logging.debug(traceback.format_exc())
+                if exc_handler is not None:
+                    if not exc_handler(exc):
+                        break
+                else:
+                    # what to do??
+                    pass
 
-        logging.info("all sessions stopped")
+        logging.debug("all sessions stopped")
 
     def save_states(self):
         for obj, path in self._savelist:
@@ -75,4 +77,4 @@ class Reaktor(object):
         logging.debug("SIGTERM [%d] received", signo)
         for t in self.map.values():
             t.stop()
-        logging.debug("reaktor map after stop: %s", str(self.map))
+        #logging.debug("reaktor map after stop: %s", str(self.map))
