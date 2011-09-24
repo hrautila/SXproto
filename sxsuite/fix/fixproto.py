@@ -14,10 +14,10 @@ from time import time
 
 import sxsuite.exc as exc
 from sxsuite.exc import SessionError, TransportError
-from sxsuite.fix.message import *
 from sxsuite.session import TCPSession
 from sxsuite.protocol import SessionProtocol
 from sxsuite.store import open_store
+from sxsuite.fix.message import *
 
 def utc_timestamp(milsecs=False):
     if milsecs:
@@ -53,6 +53,7 @@ class FixState(object):
         self.send_seqno = 0
         self.recv_state = FixState.INIT
         self.send_state = FixState.INIT
+        self.resend_seqno = 0
         self.testrq_queue = []
         self.mstore = None
         if store_url:
@@ -122,6 +123,13 @@ class FixSession(TCPSession):
     def send(self, data):
         """Send message."""
         self.protocol.rebuild_and_transmit(data)
+
+    def save(self, path):
+        self.state.save(path)
+
+    def restore(self, path):
+        self.state.restore(path)
+
 
 class FixClient(FixSession):
     def __init__(self, reaktor, protocol, name='', state_path='', store_url=''):
@@ -196,7 +204,7 @@ class FixProtocol(SessionProtocol):
         
         if data[0].find(self.context.version) == -1:
             # first contains wrong version number
-            raise SessionError(self, exc.S_EVERSION)
+            raise SessionError, (self.session, exc.S_EVERSION)
 
         return data
         
@@ -209,21 +217,22 @@ class FixProtocol(SessionProtocol):
             raise e
 
         if not login_ok:
-            raise SessionError(self, exc.S_ELOGINFAILED)
+            raise SessionError, (self.session, exc.S_ELOGINFAILED)
 
         state = self.session.state
         if seqno - state.receive_seqno != 1:
             if seqno - state.receive_seqno > 1:
-                self.log.warning("receive seqno mismatch: msgno %d - exp msgno %d",
-                                 seqno, state.receive_seqno+1)
+                self.log.warning('LOGON: excepted [%d] <  [%d] message: missing seqnos',
+                                 state.receive_seqno+1, seqno)
                 state.recv_state = FixState.RESEND_REQUESTED
                 state.send_state = FixState.NORMAL
+                state.resend_seqno = seqno
                 self.request_resend(state.receive_seqno+1, 0)
             else:
                 # unexpected seqno for login (message seqno < receive_seqno)
-                self.log.error("receive seqno error: expected %d <> received %d",
+                self.log.error('LOGON: excepted [%d] >  [%d] message: failing ...',
                                state.receive_seqno+1, seqno)
-                raise SessionError(self, exc.S_ESEQNO)
+                raise SessionError, (self.session, exc.S_ESEQNO)
 
         else:
             state.receive_seqno = seqno
@@ -244,20 +253,21 @@ class FixProtocol(SessionProtocol):
             raise e
 
         if not login_ok:
-            raise SessionError(self, exc.S_ELOGINFAILED)
+            raise SessionError, (self.session, exc.S_ELOGINFAILED)
         
         state = self.session.state
         if seqno - state.receive_seqno != 1:
             if seqno - state.receive_seqno > 1:
-                self.log.warning("receive seqno mismatch: msgno %d - exp msgno %d",
-                                 seqno, state.receive_seqno+1)
+                self.log.warning('LOGON: excepted [%d] <  [%d] message: missing seqnos',
+                                 state.receive_seqno+1, seqno)
                 state.recv_state = FixState.RESEND_REQUESTED
                 state.send_state = FixState.NORMAL
+                state.resend_seqno = seqno
             else:
                 # unexpected seqno for login (message seqno < receive_seqno)
-                self.log.error("receive seqno error: expected %d <> received %d",
+                self.log.error('LOGON: excepted [%d] >  [%d] message: failing ...',
                                state.receive_seqno+1, seqno)
-                raise SessionError(self, exc.S_ESEQNO)
+                raise SessionError, (self.session, exc.S_ESEQNO)
 
         self.log.debug("Creating LOGON reply ...")
         # reply
@@ -273,10 +283,11 @@ class FixProtocol(SessionProtocol):
             state.receive_seqno = 0
         lg.set_field('EncryptMethod', 0, self.context)
         self._transmit('Logon', lg, admin=True)
-        state.receive_seqno += 1
 
         if state.recv_state == FixState.RESEND_REQUESTED:
             self.request_resend(state.receive_seqno+1, 0)
+        else:
+            state.receive_seqno += 1
 
         return True
 
@@ -294,13 +305,13 @@ class FixProtocol(SessionProtocol):
         if self.context.isinstance(msgtype, Logout):
             msg = data.get(58)
             self.log.error("received LOGOUT: %s", msg)
-            raise SessionError(self, exc.S_EINMESSAGE, msg)
+            raise SessionError, (self.session, exc.S_EINMESSAGE, msg)
 
         elif not self.context.isinstance(msgtype, Logon):
             self.log.error("received %s message in LOGIN state",
                            self.context.name_for_msgtype(msgtype))
             self.session._direct = direct
-            raise SessionError(self, exc.S_EINMESSAGE)
+            raise SessionError, (self.session, exc.S_EINMESSAGE)
 
         if not server:
             self.client_auth(seqno, data)
@@ -340,24 +351,30 @@ class FixProtocol(SessionProtocol):
 
         # at this point receive_seqno should be smaller by one
         if seqno - state.receive_seqno < 1:
-            self.log.error('excepted seqno [%d] >  [%d] msg seqno: poss_dup=%s',
+            self.log.error('excepted [%d] >  [%d] message: poss_dup=%s',
                            state.receive_seqno+1, seqno, posdup_flag)
 
             # if not 'possibly duplicate' then fail the session
             if posdup_flag != 'Y':
-                raise SessionError("Expected seqno %d higher that received seqno %d" %
+                raise SessionError, (self.session, exc.S_ESEQNO,
+                                   "Expected seqno %d higher that received seqno %d" %
                                    (state.receive_seqno+1, seqno))
 
         elif seqno - state.receive_seqno > 1:
-            self.log.error('excepted seqno [%d] <  [%d] msg seqno: missing messages',
+            self.log.error('excepted [%d] <  [%d] message: missing messages',
                            state.receive_seqno+1, seqno)
             request_resend = True
-
-        state.receive_seqno += 1
+            
         if self.context.msgtype_is_application(msgtype):
             self.session.received(data)
         else:
             self.handle_admin(msgtype, seqno, data, server)
+
+        if request_resend:
+            self.request_resend(state.receive_seqno+1, seqno)
+        else:
+            state.receive_seqno += 1
+
 
             
     def handle_admin(self, msgtype, seqno, data, server):
@@ -424,9 +441,10 @@ class FixProtocol(SessionProtocol):
             opts = FixMessage()
             opts.set_field('PossDupFlag', 'Y', self.context)
             opts.set_field('OrigSendingTime', utc_timestamp(), self.context)
+            opts.set_field('MsgSeqNum', start, self.context)
             mg = FixMessage()
             mg.set_field('GapFillFlag', 'Y', self.context)
-            mg.set_field('NewSeqNo', state.send_seqno+1, self.context)
+            mg.set_field('NewSeqNo', state.send_seqno, self.context)
             self._transmit('SequenceReset', mg, options=opts, admin=True)
         elif resend_mode == 'RESET':
             self.log.debug("sending SequeceReset-Reset")
@@ -476,13 +494,17 @@ class FixProtocol(SessionProtocol):
                          self.session.get_conf('sender_comp_id'), self.context)
         header.set_field('TargetCompID',
                          self.session.get_conf('target_comp_id'), self.context)
-        state.send_seqno += 1
-        header.set_field('MsgSeqNum', state.send_seqno, self.context)
-        header.set_field('SendingTime', utc_timestamp(), self.context)
-        if options is not None:
+        if options is None:
+            state.send_seqno += 1
+            header.set_field('MsgSeqNum', state.send_seqno, self.context)
+        else:
+            if options.get_field('MsgSeqNum', self.context) is None:
+                state.send_seqno += 1
+                header.set_field('MsgSeqNum', state.send_seqno, self.context)
             # merge options
             header.join(options)
 
+        header.set_field('SendingTime', utc_timestamp(), self.context)
         return header
 
     def _transmit(self, msgname, msg, options=None, admin=False):
