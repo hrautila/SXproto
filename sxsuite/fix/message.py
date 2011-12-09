@@ -144,7 +144,7 @@ class FixMessage(list):
             tag = str(desc.number) + '='
         else:
             if not str(name).isdigit():
-                return None
+                raise ValueError("field name is not numeric.")
             tag = str(name) + '='
 
         n = self.find_tag(tag)
@@ -292,8 +292,8 @@ class FixObject(object):
 class FixHeader(FixObject):
     """Header part of FIX message."""
     
-    def __init__(self, context, values={}):
-        FixObject.__init__(self, context, values)
+    #def __init__(self, context, values={}):
+    #    FixObject.__init__(self, context, values)
 
     def _check_attribute(self, attr):
         desc = FixObject._check_attribute(self, attr)
@@ -366,7 +366,7 @@ def _make_mbody(obj, context):
         if not isinstance(desc, FixGroupDescriptor):
             fixm.add(desc.number, str(getattr(obj, name)))
         else:
-            grp = getattr(self, name)
+            grp = getattr(obj, name)
             fixm.add(desc.number, len(grp))
             gspec = context.group_for_name(name)
 
@@ -389,7 +389,7 @@ def _build_group(group, gspec, fixm, context):
                 subgrp = getattr(ge, tagname)
                 fixm.add(desc.number, len(subgrp))
                 subspec = context.group_for_name(tagname)
-                self._build_group(subgrp, subspec, fixm)
+                _build_group(subgrp, subspec, fixm, context)
         # endfor
     # endfor 
 
