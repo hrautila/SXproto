@@ -15,6 +15,17 @@ def open_store(url):
         return MessageFileStore(r.path)
     return None
 
+class MessageStore(object):
+    def save(self, num, msg):
+        pass
+
+    def find(self, num, pos=0):
+        pass
+
+    def next(self, num):
+        pass
+
+    
 class MessageFileStore(object):
     def __init__(self, path):
         self.path = path
@@ -58,5 +69,9 @@ class MessageFileStore(object):
         except EOFError, e:
             return -1, None
         return rec[0], rec[1]
+
+
+class SQLiteStore(MessageStore):
+    pass
 
             
