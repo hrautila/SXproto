@@ -16,19 +16,24 @@ class FixSink(Handler):
         self.connection = None
         self.path = name
         self.fd = None
+        self.config = None
 
-    def setup(self, connection):
+    def setup(self, connection, config):
         """We are not interested in writing back."""
-        pass
+        logging.info("setup application ...")
+        self.config = config
+        for k, v in self.config.items():
+            logging.info( "appconfig: %s = %s", k, v)
 
-    def handle(self, data):
+
+    def handle(self, data, connection):
         self._open()
         if self.fd is not None:
             self.fd.write(str(data))
             self.fd.flush()
         return None
 
-    def finish(self):
+    def finish(self, connection):
         """Here we would do what ever needed when stopping."""
         pass
 
