@@ -199,7 +199,7 @@ class FixProtocol(SessionProtocol):
         """Convert from raw to internal FixMessage and validate it."""
         data = FixMessage.from_raw(raw_data)
         if not data.validate():
-            self.log.debug("disgarding message: %s", data)
+            self.log.warning("disgarding message: %s", data)
             return None
         
         if data[0].find(self.context.version) == -1:
@@ -278,6 +278,8 @@ class FixProtocol(SessionProtocol):
         lg.set_field('HeartBtInt', clnt_hb, self.context)
         reset_flag = data.get_field('ResetSeqNumFlag', self.context)
         if reset_flag == 'Y':
+            self.log.warning("Reseting sequence numbers at logon (r=%d, s=%d)",
+                             state.receive_seqno, state.send_seqno)
             lg.set_field('ResetSeqNumFlag', 'Y', self.context)
             state.send_seqno = 0
             state.receive_seqno = 0
@@ -325,9 +327,19 @@ class FixProtocol(SessionProtocol):
     def send_login(self):
         """Send login data to transport."""
         hb_secs = self.session.get_conf('heartbeat_interval', 10)
+        reset_seqno = self.session.get_conf('reset_seqno', False)
         lg = FixMessage()
         lg.set_field('HeartBtInt', hb_secs, self.context)
         lg.set_field('EncryptMethod', 0, self.context)
+        if reset_seqno:
+            lg.set_field('ResetSeqNumFlag', 'Y', self.context)
+            state = self.session.state
+            self.log.warning("Reseting sequence numbers at logon (r=%d, s=%d)",
+                             state.receive_seqno, state.send_seqno)
+            if state.send_seqno > 0:
+                state.send_seqno = 0
+            if state.receive_seqno > 0:
+                state.receive_seqno = 0
         self._transmit('Logon', lg, admin=True)
 
     def send_hb(self):
@@ -346,7 +358,7 @@ class FixProtocol(SessionProtocol):
         self.log.debug("last received seqno: %d, msg seqno: %d, state: %d",
                        state.receive_seqno, seqno, self.session._state)
         
-        self.log.info(" IN: %s", str(data))
+        self.log.debug(" IN: %s", str(data))
         posdup_flag = data.get_field('PossDupFlag', self.context)
 
         # at this point receive_seqno should be smaller by one
@@ -433,11 +445,11 @@ class FixProtocol(SessionProtocol):
     def resend(self, start, end):
         """Resend message as for ResendRequest"""
         state = self.session.state
-        self.log.debug("handling resend from %d to %d", start, end)
+        self.log.info("handling resend from %d to %d", start, end)
         state.send_state = FixState.RESEND_RECEIVED
         resend_mode = self.session.get_conf('resend_mode', '')
         if resend_mode == 'GAPFILL' or resend_mode == 'BUYSIDE':
-            self.log.debug("sending SequeceReset-GapFill")
+            self.log.info("sending SequeceReset-GapFill")
             opts = FixMessage()
             opts.set_field('PossDupFlag', 'Y', self.context)
             opts.set_field('OrigSendingTime', utc_timestamp(), self.context)
@@ -447,7 +459,7 @@ class FixProtocol(SessionProtocol):
             mg.set_field('NewSeqNo', state.send_seqno, self.context)
             self._transmit('SequenceReset', mg, options=opts, admin=True)
         elif resend_mode == 'RESET':
-            self.log.debug("sending SequeceReset-Reset")
+            self.log.info("sending SequeceReset-Reset")
             mg = FixMessage()
             # initialize to seqno after this message (seqno is last sent seqno)
             mg.set_field('NewSeqNo', state.send_seqno+2, self.context)
@@ -458,7 +470,7 @@ class FixProtocol(SessionProtocol):
     def request_resend(self, start, end):
         """Send  ResendRequest message"""
         state = self.session.state
-        self.log.debug("request resend from %d to %d", start, end)
+        self.log.info("request resend from %d to %d", start, end)
         mg = FixMessage()
         mg.set_field('BeginSeqNo', start, self.context)
         mg.set_field('EndSeqNo', end, self.context)
@@ -521,7 +533,7 @@ class FixProtocol(SessionProtocol):
         
         if not admin:
             state.store(state.send_seqno, data)
-        self.log.info("OUT: %s", str(data))
+        self.log.debug("OUT: %s", str(data))
         self.transmit(data)
         
 
