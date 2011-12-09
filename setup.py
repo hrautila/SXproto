@@ -13,9 +13,10 @@ setup.py file for sxsuite package.
 from distutils.core import setup, Extension
 
 setup(name = 'sxsuite',
-      version = '0.1',
+      version = '0.1a',
       author = 'Harri Rautila',
       author_email = 'harri.rautila@gmail.com',
       description = """Xchange protocol suite""",
-      packages = [ "sxsuite", "sxsuite.fix"]
+      packages = [ "sxsuite", "sxsuite.fix"],
+      scripts = ["bin/fixserver.py"],
       )
