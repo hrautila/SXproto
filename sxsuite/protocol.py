@@ -13,7 +13,7 @@ import sxsuite.exc as exc
 from sxsuite.exc import SessionError
 
 class SessionProtocol(object):
-    def __init__(self):
+    def __init__(self, version=None):
         self.session = None
         
     def __str__(self):
@@ -48,7 +48,7 @@ class SessionProtocol(object):
 
 class LineProtocol(SessionProtocol):
     """Simple line protocol with message terminated with new-lines."""
-    def __init__(self):
+    def __init__(self, version=None):
         SessionProtocol.__init__(self)
         
     def received(self, data, server=False):
