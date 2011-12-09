@@ -248,8 +248,11 @@ class PipeTransport(Transport):
         Transport.__init__(self, reaktor, None, target)
         self.set_socket(sock)
         self.state = Transport.CONNECTED
-
-
+        
+    def recv(self, size=0):
+        data = self.socket.recv()
+        return data
+    
 
 if sys.platform != 'win32':
      class FileTransport(asyncore.file_dispatcher):
